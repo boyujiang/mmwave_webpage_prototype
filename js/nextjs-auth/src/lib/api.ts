@@ -32,4 +32,19 @@ export const getUserProfile = async () => {
   return response.data;
 };
 
+export const getRealtimeData = async () => {
+  const response = await api.get('/analytics/realtime/');
+  return response.data;
+};
+
+export const getDailySummary = async () => {
+  const response = await api.get('/analytics/daily/');
+  return response.data;
+};
+
+export const getDashboardConfig = async () => {
+  const response = await api.get('/analytics/config/');
+  return response.data;
+};
+
 export default api;
