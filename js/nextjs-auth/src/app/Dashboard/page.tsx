@@ -2,28 +2,46 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { getUserProfile, getRealtimeData, getDailySummary, getDashboardConfig } from '@/src/lib/api';
+import { getUserProfile, getDashboardConfig, getResidents } from '@/src/lib/api';
 import Sidebar from '@/src/components/Sidebar';
+
+interface Resident {
+  id: number;
+  name: string;
+  room_number: string;
+  latest_vitals: {
+    heart_rate: number;
+    respiration: number;
+    activity_level: number;
+    recorded_at: string;
+  } | null;
+  today_bathroom_runs: number;
+  latest_events: Array<{
+    id: number;
+    event_type: string;
+    event_type_display: string;
+    timestamp: string;
+  }>;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [realtimeData, setRealtimeData] = useState<any>({});
-  const [dailyData, setDailyData] = useState<any>({});
   const [config, setConfig] = useState<any>({});
+  const [residents, setResidents] = useState<Resident[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [userData, configData, dailyDataResult] = await Promise.all([
+        const [userData, configData, residentsData] = await Promise.all([
           getUserProfile(),
           getDashboardConfig(),
-          getDailySummary()
+          getResidents()
         ]);
         setUser(userData);
         setConfig(configData);
-        setDailyData(dailyDataResult);
+        setResidents(residentsData);
         setLoading(false);
       } catch (error) {
         router.push('/login');
@@ -33,27 +51,22 @@ export default function DashboardPage() {
     fetchInitialData();
   }, [router]);
 
-  // Poll for real-time data
   useEffect(() => {
     if (!user) return;
 
-    const fetchRealtime = async () => {
+    const fetchResidents = async () => {
       try {
-        const data = await getRealtimeData();
-        setRealtimeData(data);
+        const data = await getResidents();
+        setResidents(data);
       } catch (error) {
-        console.error('Failed to fetch realtime data:', error);
+        console.error('Failed to fetch residents:', error);
       }
     };
 
-    // Initial fetch
-    fetchRealtime();
-
-    // Poll every 5 seconds (or use config.refresh_interval)
-    const interval = setInterval(fetchRealtime, (config.refresh_interval || 5) * 1000);
-
+    fetchResidents();
+    const interval = setInterval(fetchResidents, 30000);
     return () => clearInterval(interval);
-  }, [user, config.refresh_interval]);
+  }, [user]);
 
   if (loading) {
     return (
@@ -73,69 +86,57 @@ export default function DashboardPage() {
             Dashboard
           </h1>
           
-          {/* Real-time Metrics */}
+          {/* Residents Section */}
           <div className="mb-6">
-            <h2 className="text-xl font-semibold mb-4 text-gray-700">Real-time Metrics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-lg shadow border-l-4 border-blue-500">
-                <h3 className="text-gray-500 text-sm font-medium">Active Users</h3>
-                <p className="text-2xl font-bold text-blue-600 mt-1">
-                  {realtimeData.active_users || 0}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Live</p>
-              </div>
+            <h2 className="text-xl font-semibold mb-4 text-gray-700">Residents</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {residents.map((resident) => (
+                <div key={resident.id} className="bg-white p-4 rounded-lg shadow">
+                  <div className="flex justify-between items-start mb-3">
+                    <div>
+                      <h3 className="font-semibold text-lg text-gray-900">{resident.name}</h3>
+                      <p className="text-sm text-gray-500">Room {resident.room_number}</p>
+                    </div>
+                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-full">
+                      Active
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500">Heart Rate</p>
+                      <p className="font-semibold text-red-600">
+                        {resident.latest_vitals?.heart_rate || '--'} bpm
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500">Respiration</p>
+                      <p className="font-semibold text-blue-600">
+                        {resident.latest_vitals?.respiration || '--'} /min
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-gray-500">Activity</p>
+                      <p className="font-semibold text-purple-600">
+                        {resident.latest_vitals?.activity_level?.toFixed(0) || '--'}%
+                      </p>
+                    </div>
+                  </div>
+                  
+                  <div className="border-t pt-3">
+                    <p className="text-sm text-gray-600">
+                      <span className="font-medium">Bathroom runs today:</span>{' '}
+                      <span className="text-orange-600 font-semibold">{resident.today_bathroom_runs}</span>
+                    </p>
+                  </div>
+                </div>
+              ))}
               
-              <div className="bg-white p-4 rounded-lg shadow border-l-4 border-green-500">
-                <h3 className="text-gray-500 text-sm font-medium">CPU Usage</h3>
-                <p className="text-2xl font-bold text-green-600 mt-1">
-                  {realtimeData.cpu_usage?.toFixed(1) || 0}%
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Live</p>
-              </div>
-              
-              <div className="bg-white p-4 rounded-lg shadow border-l-4 border-yellow-500">
-                <h3 className="text-gray-500 text-sm font-medium">Memory</h3>
-                <p className="text-2xl font-bold text-yellow-600 mt-1">
-                  {realtimeData.memory_usage?.toFixed(1) || 0}%
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Live</p>
-              </div>
-              
-              <div className="bg-white p-4 rounded-lg shadow border-l-4 border-purple-500">
-                <h3 className="text-gray-500 text-sm font-medium">Requests/sec</h3>
-                <p className="text-2xl font-bold text-purple-600 mt-1">
-                  {realtimeData.requests_per_second || 0}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Live</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Daily Summary */}
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold mb-4 text-gray-700">Today's Summary</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h3 className="text-gray-500 text-sm font-medium">Total Transactions</h3>
-                <p className="text-3xl font-bold text-blue-600 mt-2">
-                  {dailyData.total_transactions?.toLocaleString() || 0}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Updated daily</p>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h3 className="text-gray-500 text-sm font-medium">Revenue</h3>
-                <p className="text-3xl font-bold text-green-600 mt-2">
-                  ${dailyData.total_revenue?.toLocaleString() || 0}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">Updated daily</p>
-              </div>
-              
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h3 className="text-gray-500 text-sm font-medium">Active Projects</h3>
-                <p className="text-3xl font-bold text-purple-600 mt-2">23</p>
-                <p className="text-xs text-gray-400 mt-1">Static</p>
-              </div>
+              {residents.length === 0 && (
+                <div className="col-span-full text-center py-8 text-gray-500">
+                  No residents found. Run create_sample_residents task to add sample data.
+                </div>
+              )}
             </div>
           </div>
 

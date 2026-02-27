@@ -64,18 +64,28 @@
 | **DashboardConfig Model** | `analytics/models.py` | 用户仪表盘配置存储: theme, refresh_interval, widgets |
 | **AnalyticsSummary Model** | `analytics/models.py` | 周期性汇总数据: period_type(hourly/daily/weekly), metric_name, value |
 | **RealtimeEvent Model** | `analytics/models.py` | 实时事件日志: event_type, data, processed 状态 |
+| **Resident Model** | `analytics/models.py` | 居民静态信息: name, room_number (static, 存 DB) |
+| **ResidentVitals Model** | `analytics/models.py` | 居民体征数据: heart_rate, respiration, activity_level (频繁更新) |
+| **ResidentEvent Model** | `analytics/models.py` | 居民事件: bathroom_run, fall_detected 等 (夜间/不定期更新) |
 | **RealtimeCache** | `analytics/cache.py` | 实时指标缓存工具 (TTL=10s) |
 | **RealtimeDataView** | `analytics/views.py` | 获取实时指标 API (active_users, cpu_usage, memory_usage, rps) |
 | **DailySummaryView** | `analytics/views.py` | 获取每日汇总 API (缓存1小时) |
 | **ConfigView** | `analytics/views.py` | 获取/更新用户配置 API |
+| **ResidentListView** | `analytics/views.py` | 获取所有 residents 列表 (含 vitals, events) |
+| **ResidentDetailView** | `analytics/views.py` | 获取单个 resident 详情 |
 | **update_realtime_metrics** | `analytics/tasks.py` | Celery 任务: 每5秒更新模拟指标数据 |
 | **generate_daily_summary** | `analytics/tasks.py` | Celery 任务: 每日生成汇总数据 |
+| **update_resident_vitals** | `analytics/tasks.py` | Celery 任务: 每30秒更新 resident 心率/呼吸/活动 |
+| **generate_resident_events** | `analytics/tasks.py` | Celery 任务: 每小时生成 bathroom runs 等事件 (夜间优先) |
+| **create_sample_residents** | `analytics/tasks.py` | Celery 任务: 创建测试用 sample residents |
 
 **API Endpoints:**
 - `GET /api/analytics/realtime/` - 获取实时指标
 - `GET /api/analytics/daily/` - 获取每日汇总
 - `GET /api/analytics/config/` - 获取用户配置
 - `POST /api/analytics/config/` - 更新用户配置
+- `GET /api/analytics/residents/` - 获取所有 residents (含 vitals, bathroom runs, events)
+- `GET /api/analytics/residents/<id>/` - 获取单个 resident 详情
 
 ---
 

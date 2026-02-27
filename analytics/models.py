@@ -41,3 +41,46 @@ class RealtimeEvent(models.Model):
     
     class Meta:
         ordering = ['-timestamp']
+
+
+# Resident (Static info stored in DB)
+class Resident(models.Model):
+    name = models.CharField(max_length=100)
+    room_number = models.CharField(max_length=20, unique=True)
+    date_of_birth = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.name} - Room {self.room_number}"
+
+
+# Resident Vitals (Frequently updated - every few seconds/minutes)
+class ResidentVitals(models.Model):
+    resident = models.ForeignKey(Resident, on_delete=models.CASCADE, related_name='vitals')
+    heart_rate = models.FloatField(null=True, blank=True)  # bpm
+    respiration = models.FloatField(null=True, blank=True)  # breaths per minute
+    activity_level = models.FloatField(null=True, blank=True)  # activity score 0-100
+    recorded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-recorded_at']
+
+
+# Resident Events (Bathroom runs, etc - overnight/irregular updates)
+class ResidentEvent(models.Model):
+    EVENT_TYPES = [
+        ('bathroom_run', 'Bathroom Run'),
+        ('fall_detected', 'Fall Detected'),
+        ('medication_taken', 'Medication Taken'),
+        ('exited_room', 'Exited Room'),
+        ('returned_room', 'Returned Room'),
+    ]
+
+    resident = models.ForeignKey(Resident, on_delete=models.CASCADE, related_name='events')
+    event_type = models.CharField(max_length=50, choices=EVENT_TYPES)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    metadata = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ['-timestamp']
