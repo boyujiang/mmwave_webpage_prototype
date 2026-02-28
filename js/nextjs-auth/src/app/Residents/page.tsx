@@ -1,0 +1,189 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { getUserProfile, getResidents } from '@/src/lib/api';
+import Sidebar from '@/src/components/Sidebar';
+
+interface Resident {
+  id: number;
+  name: string;
+  room_number: string;
+  latest_vitals: {
+    heart_rate: number;
+    respiration: number;
+    activity_level: number;
+    recorded_at: string;
+  } | null;
+  today_bathroom_runs: number;
+  latest_events: Array<{
+    id: number;
+    event_type: string;
+    event_type_display: string;
+    timestamp: string;
+  }>;
+}
+
+export default function ResidentsPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [user, setUser] = useState<any>(null);
+  const [residents, setResidents] = useState<Resident[]>([]);
+  const [filteredResidents, setFilteredResidents] = useState<Resident[]>([]);
+  const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const [userData, residentsData] = await Promise.all([
+          getUserProfile(),
+          getResidents()
+        ]);
+        setUser(userData);
+        setResidents(residentsData);
+        setFilteredResidents(residentsData);
+        setLoading(false);
+      } catch (error) {
+        router.push('/login');
+      }
+    };
+
+    fetchInitialData();
+  }, [router]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchResidents = async () => {
+      try {
+        const data = await getResidents();
+        setResidents(data);
+      } catch (error) {
+        console.error('Failed to fetch residents:', error);
+      }
+    };
+
+    fetchResidents();
+    const interval = setInterval(fetchResidents, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  useEffect(() => {
+    const query = searchQuery.toLowerCase();
+    if (!query) {
+      setFilteredResidents(residents);
+    } else {
+      setFilteredResidents(
+        residents.filter(
+          (r) =>
+            r.name.toLowerCase().includes(query) ||
+            r.room_number.toLowerCase().includes(query)
+        )
+      );
+    }
+  }, [searchQuery, residents]);
+
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(e.target.value);
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-xl">Loading...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-screen bg-gray-50">
+      <Sidebar user={user} />
+      
+      <main className="flex-1 p-6">
+        <div className="max-w-7xl mx-auto">
+          {/* Header */}
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-2xl font-bold text-gray-900">Residents</h1>
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search by name or room..."
+                value={searchQuery}
+                onChange={handleSearch}
+                className="w-64 px-4 py-2 pl-10 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <span className="absolute left-3 top-2.5 text-gray-400">🔍</span>
+            </div>
+          </div>
+
+          {/* Resident Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {filteredResidents.map((resident) => (
+              <div
+                key={resident.id}
+                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+              >
+                {/* Header */}
+                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-white font-semibold">Room {resident.room_number}</span>
+                    <span className="bg-white/20 text-white text-xs px-2 py-1 rounded-full">
+                      Active
+                    </span>
+                  </div>
+                </div>
+
+                {/* Content */}
+                <div className="p-4">
+                  <h3 className="font-semibold text-lg text-gray-900 mb-4">{resident.name}</h3>
+
+                  {/* Vitals Grid */}
+                  <div className="grid grid-cols-3 gap-2 mb-4">
+                    <div className="text-center p-2 bg-red-50 rounded-lg">
+                      <p className="text-xs text-red-600 font-medium">Heart</p>
+                      <p className="text-lg font-bold text-red-700">
+                        {resident.latest_vitals?.heart_rate || '--'}
+                      </p>
+                      <p className="text-xs text-red-400">bpm</p>
+                    </div>
+                    <div className="text-center p-2 bg-blue-50 rounded-lg">
+                      <p className="text-xs text-blue-600 font-medium">Resp</p>
+                      <p className="text-lg font-bold text-blue-700">
+                        {resident.latest_vitals?.respiration || '--'}
+                      </p>
+                      <p className="text-xs text-blue-400">/min</p>
+                    </div>
+                    <div className="text-center p-2 bg-purple-50 rounded-lg">
+                      <p className="text-xs text-purple-600 font-medium">Activity</p>
+                      <p className="text-lg font-bold text-purple-700">
+                        {resident.latest_vitals?.activity_level?.toFixed(0) || '--'}
+                      </p>
+                      <p className="text-xs text-purple-400">%</p>
+                    </div>
+                  </div>
+
+                  {/* Bathroom Runs */}
+                  <div className="flex items-center justify-between py-2 border-t border-gray-100">
+                    <span className="text-sm text-gray-600">Bathroom Runs</span>
+                    <span className="text-lg font-bold text-orange-600">
+                      {resident.today_bathroom_runs}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Empty State */}
+          {filteredResidents.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-gray-500 text-lg">No residents found</p>
+              <p className="text-gray-400">Try adjusting your search</p>
+            </div>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
