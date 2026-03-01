@@ -42,4 +42,11 @@ export const getResidents = async () => {
   return response.data;
 };
 
+export const getResidentVitalsHistory = async (residentId: string, metric: string, range: string) => {
+  const response = await api.get(`/analytics/residents/${residentId}/history/`, {
+    params: { metric, range },
+  });
+  return response.data;
+};
+
 export default api;

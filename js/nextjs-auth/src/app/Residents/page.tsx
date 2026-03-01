@@ -170,6 +170,14 @@ export default function ResidentsPage() {
                       {resident.today_bathroom_runs}
                     </span>
                   </div>
+
+                  {/* Expand Button */}
+                  <button
+                    onClick={() => router.push(`/Residents/${resident.id}`)}
+                    className="w-full mt-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    View Details
+                  </button>
                 </div>
               </div>
             ))}
