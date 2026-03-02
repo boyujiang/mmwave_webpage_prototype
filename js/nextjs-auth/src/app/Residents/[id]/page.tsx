@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { getUserProfile, getResidents, getResidentVitalsHistory } from '@/src/lib/api';
+import { getUserProfile, getResidents, getResidentVitalsHistory, getAlertNotes, createAlertNote, dismissAlert } from '@/src/lib/api';
 import Sidebar from '@/src/components/Sidebar';
 import {
   Chart as ChartJS,
@@ -33,16 +33,29 @@ interface Resident {
   latest_vitals: {
     heart_rate: number;
     respiration: number;
-    activity_level: number;
+    activity_status: string;
+    in_bed: boolean;
+    in_room: boolean;
     recorded_at: string;
   } | null;
   today_bathroom_runs: number;
+  status: 'stable' | 'fall_detected' | 'room_departure';
   latest_events: Array<{
     id: number;
     event_type: string;
     event_type_display: string;
     timestamp: string;
   }>;
+}
+
+interface AlertNote {
+  id: number;
+  alert_type: string;
+  note: string;
+  caregiver_name: string;
+  created_at: string;
+  is_dismissed: boolean;
+  dismissed_at: string | null;
 }
 
 const metrics = [
@@ -71,6 +84,10 @@ export default function ResidentDetailPage() {
   const [chartData, setChartData] = useState<any>({ labels: [], datasets: [] });
   const [average, setAverage] = useState<number | null>(null);
   const [baseline, setBaseline] = useState<number | null>(null);
+  const [alertNotes, setAlertNotes] = useState<AlertNote[]>([]);
+  const [newNote, setNewNote] = useState('');
+  const [isAlertDismissed, setIsAlertDismissed] = useState(false);
+  const [selectedNote, setSelectedNote] = useState<AlertNote | null>(null);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -153,6 +170,48 @@ export default function ResidentDetailPage() {
     return () => clearInterval(interval);
   }, [user, residentId]);
 
+  useEffect(() => {
+    if (!resident) return;
+
+    const fetchAlertNotes = async () => {
+      try {
+        const notes = await getAlertNotes(residentId);
+        setAlertNotes(notes);
+        const activeNote = notes.find((n: AlertNote) => !n.is_dismissed);
+        setIsAlertDismissed(!activeNote);
+      } catch (error) {
+        console.error('Failed to fetch alert notes:', error);
+      }
+    };
+
+    fetchAlertNotes();
+    const interval = setInterval(fetchAlertNotes, 30000);
+    return () => clearInterval(interval);
+  }, [resident, residentId]);
+
+  const handleSubmitNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newNote.trim()) return;
+
+    try {
+      await createAlertNote(residentId, newNote, resident?.status || 'general');
+      setNewNote('');
+      const notes = await getAlertNotes(residentId);
+      setAlertNotes(notes);
+    } catch (error) {
+      console.error('Failed to submit note:', error);
+    }
+  };
+
+  const handleDismissAlert = async () => {
+    try {
+      await dismissAlert(residentId);
+      setIsAlertDismissed(true);
+    } catch (error) {
+      console.error('Failed to dismiss alert:', error);
+    }
+  };
+
   const formatTimestamp = (timestamp: string, range: string) => {
     const date = new Date(timestamp);
     if (range === 'hour' || range === 'day') {
@@ -184,20 +243,24 @@ export default function ResidentDetailPage() {
   };
 
   const getActivityStatus = () => {
-    const activity = resident?.latest_vitals?.activity_level || 0;
-    if (activity > 70) return 'Walking';
-    if (activity > 30) return 'Sitting';
-    return 'Lying Down';
+    const activity = resident?.latest_vitals?.activity_status || 'lying_down';
+    const labels: Record<string, string> = {
+      standing: 'Standing',
+      sitting: 'Sitting',
+      walking: 'Walking',
+      lying_down: 'Lying Down',
+    };
+    return labels[activity] || activity;
   };
 
   const isAbnormalHR = () => {
     const hr = resident?.latest_vitals?.heart_rate;
-    return hr !== null && (hr < acceptableHrRange[0] || hr > acceptableHrRange[1]);
+    return hr != null && (hr < acceptableHrRange[0] || hr > acceptableHrRange[1]);
   };
 
   const isAbnormalRR = () => {
     const rr = resident?.latest_vitals?.respiration;
-    return rr !== null && (rr < acceptableRrRange[0] || rr > acceptableRrRange[1]);
+    return rr != null && (rr < acceptableRrRange[0] || rr > acceptableRrRange[1]);
   };
 
   if (loading) {
@@ -222,17 +285,41 @@ export default function ResidentDetailPage() {
       
       <main className="flex-1">
         {/* Header */}
-        <div className="patient-header">
+        <div style={{ backgroundColor: '#f5f0f0', borderBottom: '1px solid #d8d8db', padding: '20px', fontSize: '26px', fontWeight: 600 }}>
           <div className="d-flex justify-content-between align-items-center">
-            <div className="patient-name">{resident.name}</div>
-            <div className="room-number">Room: {resident.room_number}</div>
+            <div>
+              <div style={{ fontSize: 'inherit', fontWeight: 'inherit' }}>{resident.name}</div>
+              <div style={{ fontSize: '20px', fontWeight: 400, color: '#666' }}>Room: {resident.room_number}</div>
+            </div>
           </div>
         </div>
+
+        {/* Status Alert Banner with Dismiss */}
+        {resident.status !== 'stable' && (
+          <div className="p-3 bg-red-100 border-b border-red-300">
+            <div className="d-flex align-items-center justify-content-between">
+              <span className="font-semibold text-red-800">
+                ⚠️ {resident.status === 'fall_detected' ? 'Fall Detected!' : 'Room Departure!'}
+              </span>
+              {!isAlertDismissed && (
+                <button
+                  onClick={handleDismissAlert}
+                  className="btn btn-sm btn-outline-danger"
+                >
+                  Dismiss Alert
+                </button>
+              )}
+              {isAlertDismissed && (
+                <span className="text-sm text-gray-500">Alert Dismissed</span>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="container-fluid">
           <div className="row">
             {/* Sidebar - Desktop */}
-            <div className="col-12 col-lg-4 desktop-sidebar">
+            <div className="col-12" style={{ borderRight: '1px solid #d8d8db', width: '33%', height: '100vh' }}>
               <div className="current-metrics-container">
                 {/* Alerts */}
                 {isAbnormalHR() && (
@@ -247,9 +334,9 @@ export default function ResidentDetailPage() {
                 )}
 
                 {/* Vital Cards */}
-                <div className="row vital-cards" style={{ padding: '16px 8px' }}>
+                <div className="row" style={{ padding: '16px 8px' }}>
                   <div className="col-6">
-                    <div className="card vital-card" style={{ borderRadius: '1rem' }}>
+                    <div className="card" style={{ borderRadius: '1rem', border: '1px solid #d8d8db' }}>
                       <div className="card-body">
                         <p className="card-title" style={{ padding: '0px 2px', margin: '0px', fontSize: '19px', fontWeight: 600 }}>Heart Rate</p>
                         <p className="card-text" style={{ padding: '0px 2px', fontSize: '34px', fontWeight: 'bold', color: '#fc3737' }}>
@@ -259,7 +346,7 @@ export default function ResidentDetailPage() {
                     </div>
                   </div>
                   <div className="col-6">
-                    <div className="card vital-card" style={{ borderRadius: '1rem' }}>
+                    <div className="card" style={{ borderRadius: '1rem', border: '1px solid #d8d8db' }}>
                       <div className="card-body">
                         <p className="card-title" style={{ padding: '0px 2px', margin: '0px', fontSize: '19px', fontWeight: 600 }}>Respiration</p>
                         <p className="card-text" style={{ padding: '0px 5px', fontSize: '34px', fontWeight: 'bold', color: '#488bff' }}>
@@ -285,9 +372,10 @@ export default function ResidentDetailPage() {
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Main Content */}
-            <div className="col-12 col-lg-8 desktop-main-content">
+          {/* Main Content */}
+          <div className="col-12" style={{ width: '67%' }}>
               <div className="historical-metrics-container p-2">
                 {/* Measurement selection buttons */}
                 <div className="measurement-buttons mb-3">
@@ -315,19 +403,7 @@ export default function ResidentDetailPage() {
                     <button className="btn dropdown-toggle" type="button" data-bs-toggle="dropdown" style={{ backgroundColor: '#fff', borderColor: '#d8d8db' }}>
                       {metrics.find(m => m.id === selectedMetric)?.label}
                     </button>
-                    <ul className="dropdown-menu">
-                      {metrics.map((m) => (
-                        <li key={m.id}>
-                          <a
-                            className="dropdown-item"
-                            href="#"
-                            onClick={() => setSelectedMetric(m.id)}
-                          >
-                            {m.label}
-                          </a>
-                        </li>
-                      ))}
-                    </ul>
+
                   </div>
                 </div>
 
@@ -398,33 +474,80 @@ export default function ResidentDetailPage() {
               </div>
             </div>
           </div>
+
+          {/* Caregiver Notes Section - File Browser */}
+        <div className="p-4">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <h3 className="font-semibold text-gray-900 mb-3">Caregiver Notes</h3>
+            
+            <div className="flex gap-4">
+              {/* File List - Scrollable */}
+              <div 
+                className="w-1/3 border border-gray-200 rounded-lg p-2 overflow-y-auto" 
+                style={{ maxHeight: '300px' }}
+              >
+                {alertNotes.length > 0 ? (
+                  alertNotes.map((note) => (
+                    <div
+                      key={note.id}
+                      onDoubleClick={() => setSelectedNote(note)}
+                      className={`p-2 cursor-pointer rounded mb-1 text-sm ${
+                        selectedNote?.id === note.id 
+                          ? 'bg-blue-100 border border-blue-300' 
+                          : 'hover:bg-gray-100'
+                      }`}
+                    >
+                      <span className="text-gray-700">{note.id}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-gray-400 text-sm text-center py-4">No notes</p>
+                )}
+              </div>
+              
+              {/* Note Content */}
+              <div className="flex-1 border border-gray-200 rounded-lg p-3">
+                {selectedNote ? (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-gray-900">{selectedNote.caregiver_name}</span>
+                      <span className="text-sm text-gray-500">
+                        {new Date(selectedNote.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <p className="text-gray-700">{selectedNote.note}</p>
+                    {selectedNote.is_dismissed && (
+                      <span className="text-xs text-gray-400 mt-2 block">Dismissed</span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-400 text-center py-8">Double-click a file to view content</p>
+                )}
+              </div>
+            </div>
+            
+            {/* Create New Note */}
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <form onSubmit={handleSubmitNote} className="flex gap-2">
+                <input
+                  type="text"
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Create new note..."
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg"
+                />
+                <button
+                  type="submit"
+                  disabled={!newNote.trim()}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50"
+                >
+                  Create
+                </button>
+              </form>
+            </div>
+          </div>
         </div>
       </main>
-
-      <style jsx global>{`
-        .patient-header {
-          background-color: #f5f0f0;
-          border-bottom: 1px solid #d8d8db;
-          padding: 20px;
-          font-size: 26px;
-          font-weight: 600;
-        }
-        
-        @media (min-width: 1130px) {
-          .desktop-sidebar {
-            border-right: 1px solid #d8d8db;
-            width: 33%;
-            height: 100vh;
-          }
-          .desktop-main-content {
-            width: 67%;
-          }
-        }
-        
-        .vital-card {
-          border: 1px solid #d8d8db;
-        }
-      `}</style>
     </div>
   );
 }

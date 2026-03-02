@@ -57,10 +57,19 @@ class Resident(models.Model):
 
 # Resident Vitals (Frequently updated - every few seconds/minutes)
 class ResidentVitals(models.Model):
+    ACTIVITY_STATUS = [
+        ('standing', 'Standing'),
+        ('sitting', 'Sitting'),
+        ('walking', 'Walking'),
+        ('lying_down', 'Lying Down'),
+    ]
+
     resident = models.ForeignKey(Resident, on_delete=models.CASCADE, related_name='vitals')
     heart_rate = models.FloatField(null=True, blank=True)  # bpm
     respiration = models.FloatField(null=True, blank=True)  # breaths per minute
-    activity_level = models.FloatField(null=True, blank=True)  # activity score 0-100
+    activity_status = models.CharField(max_length=20, choices=ACTIVITY_STATUS, default='lying_down')
+    in_bed = models.BooleanField(default=False)
+    in_room = models.BooleanField(default=True)
     recorded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -84,3 +93,17 @@ class ResidentEvent(models.Model):
 
     class Meta:
         ordering = ['-timestamp']
+
+
+# Caregiver Notes for Alerts
+class AlertNote(models.Model):
+    resident = models.ForeignKey(Resident, on_delete=models.CASCADE, related_name='alert_notes')
+    alert_type = models.CharField(max_length=50)
+    note = models.TextField()
+    caregiver_name = models.CharField(max_length=100)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_dismissed = models.BooleanField(default=False)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']

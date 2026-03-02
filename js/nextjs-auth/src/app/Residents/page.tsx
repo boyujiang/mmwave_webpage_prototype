@@ -12,10 +12,13 @@ interface Resident {
   latest_vitals: {
     heart_rate: number;
     respiration: number;
-    activity_level: number;
+    activity_status: string;
+    in_bed: boolean;
+    in_room: boolean;
     recorded_at: string;
   } | null;
   today_bathroom_runs: number;
+  status: 'stable' | 'fall_detected' | 'room_departure';
   latest_events: Array<{
     id: number;
     event_type: string;
@@ -23,6 +26,16 @@ interface Resident {
     timestamp: string;
   }>;
 }
+
+const getActivityLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    standing: 'Standing',
+    sitting: 'Sitting',
+    walking: 'Walking',
+    lying_down: 'Lying Down',
+  };
+  return labels[status] || status;
+};
 
 export default function ResidentsPage() {
   const router = useRouter();
@@ -88,6 +101,16 @@ export default function ResidentsPage() {
     setSearchQuery(e.target.value);
   };
 
+  const getStatusColor = (status: string) => {
+    if (status === 'stable') return 'green';
+    return 'red';
+  };
+
+  const getBorderClass = (status: string) => {
+    if (status === 'stable') return 'border-green-500';
+    return 'border-red-500';
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -122,15 +145,17 @@ export default function ResidentsPage() {
             {filteredResidents.map((resident) => (
               <div
                 key={resident.id}
-                className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow"
+                className={`bg-white rounded-xl shadow-sm border-2 overflow-hidden hover:shadow-md transition-shadow ${getBorderClass(resident.status)}`}
               >
-                {/* Header */}
-                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3">
+                {/* Header with status dot */}
+                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3 relative">
                   <div className="flex justify-between items-center">
                     <span className="text-white font-semibold">Room {resident.room_number}</span>
-                    <span className="bg-white/20 text-white text-xs px-2 py-1 rounded-full">
-                      Active
-                    </span>
+                    {/* Status dot */}
+                    <span 
+                      className={`w-3 h-3 rounded-full absolute top-3 right-3 ${resident.status === 'stable' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
+                      title={resident.status === 'stable' ? 'Stable' : 'Alert'}
+                    />
                   </div>
                 </div>
 
@@ -157,11 +182,29 @@ export default function ResidentsPage() {
                     <div className="text-center p-2 bg-purple-50 rounded-lg">
                       <p className="text-xs text-purple-600 font-medium">Activity</p>
                       <p className="text-lg font-bold text-purple-700">
-                        {resident.latest_vitals?.activity_level?.toFixed(0) || '--'}
+                        {getActivityLabel(resident.latest_vitals?.activity_status || '')}
                       </p>
-                      <p className="text-xs text-purple-400">%</p>
                     </div>
                   </div>
+
+                  {/* Status Row */}
+                  <div className="flex gap-2 mb-4">
+                    <div className={`flex-1 text-center py-1 rounded ${resident.latest_vitals?.in_bed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <span className="text-xs font-medium">In Bed: {resident.latest_vitals?.in_bed ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div className={`flex-1 text-center py-1 rounded ${resident.latest_vitals?.in_room ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      <span className="text-xs font-medium">In Room: {resident.latest_vitals?.in_room ? 'Yes' : 'No'}</span>
+                    </div>
+                  </div>
+
+                  {/* Alert Banner */}
+                  {resident.status !== 'stable' && (
+                    <div className="mb-4 p-2 bg-red-100 border border-red-400 rounded-lg text-center">
+                      <span className="text-red-700 font-semibold text-sm">
+                        {resident.status === 'fall_detected' ? '⚠️ Fall Detected!' : '⚠️ Room Departure!'}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Bathroom Runs */}
                   <div className="flex items-center justify-between py-2 border-t border-gray-100">

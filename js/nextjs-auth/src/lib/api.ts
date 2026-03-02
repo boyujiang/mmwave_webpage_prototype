@@ -49,4 +49,22 @@ export const getResidentVitalsHistory = async (residentId: string, metric: strin
   return response.data;
 };
 
+export const getAlertNotes = async (residentId: string) => {
+  const response = await api.get(`/analytics/residents/${residentId}/notes/`);
+  return response.data;
+};
+
+export const createAlertNote = async (residentId: string, note: string, alertType: string) => {
+  const response = await api.post(`/analytics/residents/${residentId}/notes/`, {
+    note,
+    alert_type: alertType,
+  });
+  return response.data;
+};
+
+export const dismissAlert = async (residentId: string) => {
+  const response = await api.post(`/analytics/residents/${residentId}/dismiss/`);
+  return response.data;
+};
+
 export default api;
