@@ -9,6 +9,8 @@ interface Resident {
   id: number;
   name: string;
   room_number: string;
+  is_active: boolean;
+  alert_dismissed_at: string | null;
   latest_vitals: {
     heart_rate: number;
     respiration: number;
@@ -69,14 +71,23 @@ export default function DashboardPage() {
   }, [user]);
 
   // Sort residents: alerts first (by room_number), then stable (by room_number)
+  const getEffectiveStatus = (resident: Resident) => {
+    if (resident.status !== 'stable' && resident.alert_dismissed_at) {
+      return 'stable';
+    }
+    return resident.status;
+  };
+
   const sortedResidents = [...residents].sort((a, b) => {
-    if (a.status !== 'stable' && b.status === 'stable') return -1;
-    if (a.status === 'stable' && b.status !== 'stable') return 1;
+    const aStatus = getEffectiveStatus(a);
+    const bStatus = getEffectiveStatus(b);
+    if (aStatus !== 'stable' && bStatus === 'stable') return -1;
+    if (aStatus === 'stable' && bStatus !== 'stable') return 1;
     return a.room_number.localeCompare(b.room_number);
   });
 
-  const alertResidents = sortedResidents.filter(r => r.status !== 'stable');
-  const stableResidents = sortedResidents.filter(r => r.status === 'stable');
+  const alertResidents = sortedResidents.filter(r => getEffectiveStatus(r) !== 'stable');
+  const stableResidents = sortedResidents.filter(r => getEffectiveStatus(r) === 'stable');
 
   // Calculate stats from real data
   const totalResidents = residents.length;
@@ -178,27 +189,30 @@ export default function DashboardPage() {
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6" style={{ maxHeight: '400px', display: 'flex', flexDirection: 'column' }}>
                 <h2 className="font-semibold text-gray-900 mb-4">Residents Overview</h2>
                 <div className="space-y-3 overflow-y-auto flex-1 pr-2">
-                  {sortedResidents.map((resident) => (
-                    <div 
-                      key={resident.id} 
-                      className={`rounded-lg border p-4 ${resident.status === 'stable' ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-300'}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold mr-3 ${resident.status === 'stable' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
-                            {resident.name.charAt(0)}
+                  {sortedResidents.map((resident) => {
+                    const effectiveStatus = getEffectiveStatus(resident);
+                    return (
+                      <div 
+                        key={resident.id} 
+                        className={`rounded-lg border p-4 ${effectiveStatus === 'stable' ? 'bg-gray-50 border-gray-200' : 'bg-red-50 border-red-300'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center">
+                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold mr-3 ${effectiveStatus === 'stable' ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'}`}>
+                              {resident.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-medium text-gray-900">{resident.name}</p>
+                              <p className="text-sm text-gray-500">Room {resident.room_number}</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium text-gray-900">{resident.name}</p>
-                            <p className="text-sm text-gray-500">Room {resident.room_number}</p>
-                          </div>
+                          <span className={`text-xs px-2 py-1 rounded-full ${effectiveStatus === 'stable' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {effectiveStatus === 'stable' ? 'Stable' : effectiveStatus === 'fall_detected' ? 'Fall!' : 'Departure!'}
+                          </span>
                         </div>
-                        <span className={`text-xs px-2 py-1 rounded-full ${resident.status === 'stable' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {resident.status === 'stable' ? 'Stable' : resident.status === 'fall_detected' ? 'Fall!' : 'Departure!'}
-                        </span>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   
                   {residents.length === 0 && (
                     <p className="text-gray-500 text-center py-4">No residents data available</p>

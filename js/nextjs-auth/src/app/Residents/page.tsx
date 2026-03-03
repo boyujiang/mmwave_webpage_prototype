@@ -9,6 +9,8 @@ interface Resident {
   id: number;
   name: string;
   room_number: string;
+  is_active: boolean;
+  alert_dismissed_at: string | null;
   latest_vitals: {
     heart_rate: number;
     respiration: number;
@@ -151,11 +153,22 @@ export default function ResidentsPage() {
                 <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3 relative">
                   <div className="flex justify-between items-center">
                     <span className="text-white font-semibold">Room {resident.room_number}</span>
-                    {/* Status dot */}
-                    <span 
-                      className={`w-3 h-3 rounded-full absolute top-3 right-3 ${resident.status === 'stable' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
-                      title={resident.status === 'stable' ? 'Stable' : 'Alert'}
-                    />
+                    <div className="flex items-center gap-2">
+                      {/* Active/Inactive badge */}
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${resident.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                        {resident.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                      {/* Alert status dot */}
+                      {(() => {
+                        const effectiveStatus = resident.status !== 'stable' && resident.alert_dismissed_at ? 'stable' : resident.status;
+                        return (
+                          <span 
+                            className={`w-3 h-3 rounded-full ${effectiveStatus === 'stable' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
+                            title={effectiveStatus === 'stable' ? 'Stable' : 'Alert'}
+                          />
+                        );
+                      })()}
+                    </div>
                   </div>
                 </div>
 

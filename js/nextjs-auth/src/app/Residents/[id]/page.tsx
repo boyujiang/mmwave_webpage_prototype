@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { getUserProfile, getResidents, getResidentVitalsHistory, getAlertNotes, createAlertNote, dismissAlert } from '@/src/lib/api';
+import { getUserProfile, getResidents, getResidentVitalsHistory, getAlertNotes, createAlertNote, dismissAlert, toggleResidentActive } from '@/src/lib/api';
 import Sidebar from '@/src/components/Sidebar';
 import {
   Chart as ChartJS,
@@ -30,6 +30,8 @@ interface Resident {
   id: number;
   name: string;
   room_number: string;
+  is_active: boolean;
+  alert_dismissed_at: string | null;
   latest_vitals: {
     heart_rate: number;
     respiration: number;
@@ -53,14 +55,24 @@ interface AlertNote {
 }
 
 const metrics = [
-  { id: 'hr', label: 'Heart Rate' },
-  { id: 'rr', label: 'Respiration' },
-  { id: 'br', label: 'Bathroom Runs' },
-  { id: 'f', label: 'Falls' },
-  { id: 'rd', label: 'Room Departures' },
-  { id: 'w', label: 'Wandering' },
-  { id: 'ibt', label: 'In Bed Time' },
+  { id: 'hr', label: 'Heart Rate', unit: 'BPM' },
+  { id: 'rr', label: 'Respiration', unit: '/min' },
+  { id: 'br', label: 'Bathroom Runs', unit: 'times' },
+  { id: 'f', label: 'Falls', unit: 'times' },
+  { id: 'rd', label: 'Room Departures', unit: 'times' },
+  { id: 'w', label: 'Wandering', unit: 'times' },
+  { id: 'ibt', label: 'In Bed Time', unit: 'hours' },
 ];
+
+const metricUnits: Record<string, string> = {
+  hr: 'BPM',
+  rr: '/min',
+  br: 'times',
+  f: 'times',
+  rd: 'times',
+  w: 'times',
+  ibt: 'hours',
+};
 
 const acceptableHrRange = [60, 100];
 const acceptableRrRange = [12, 20];
@@ -73,6 +85,10 @@ const getActivityLabel = (status: string) => {
     lying_down: 'Lying Down',
   };
   return labels[status] || status;
+};
+
+const canShowVitals = (status: string) => {
+  return status === 'sitting' || status === 'lying_down';
 };
 
 export default function ResidentDetailPage() {
@@ -116,11 +132,11 @@ export default function ResidentDetailPage() {
         const data = await getResidentVitalsHistory(residentId, selectedMetric, selectedRange);
         const labels = data.data_avgs.map((d: any) => formatTimestamp(d.timestamp, selectedRange));
         const values = data.data_avgs.map((d: any) => d.value);
+        const unit = metricUnits[selectedMetric] || '';
         setChartData({
           labels,
           datasets: [
-            { label: metrics.find(m => m.id === selectedMetric)?.label || selectedMetric, data: values, borderColor: '#000', backgroundColor: '#000', fill: false },
-            { label: 'Baseline', data: labels.map(() => data.baseline), borderColor: '#488bff', borderDash: [2, 4], pointStyle: false },
+            { label: `${metrics.find(m => m.id === selectedMetric)?.label || selectedMetric} (${unit})`, data: values, borderColor: '#000', backgroundColor: '#000', fill: false },
           ],
         });
       } catch (error) {
@@ -148,18 +164,8 @@ export default function ResidentDetailPage() {
 
   useEffect(() => {
     if (!resident) return;
-    const fetchAlertNotes = async () => {
-      try {
-        const notes = await getAlertNotes(residentId);
-        setAlertNotes(notes);
-        const activeNote = notes.find((n: AlertNote) => !n.is_dismissed);
-        setIsAlertDismissed(!activeNote);
-      } catch (error) {
-        console.error('Failed to fetch alert notes:', error);
-      }
-    };
-    fetchAlertNotes();
-  }, [resident, residentId]);
+    setIsAlertDismissed(!!resident.alert_dismissed_at);
+  }, [resident]);
 
   const handleSubmitNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,12 +189,24 @@ export default function ResidentDetailPage() {
     }
   };
 
+  const handleToggleActive = async () => {
+    try {
+      const result = await toggleResidentActive(residentId);
+      setResident((prev: Resident | null) => prev ? { ...prev, is_active: result.is_active } : null);
+    } catch (error) {
+      console.error('Failed to toggle active:', error);
+    }
+  };
+
   const formatTimestamp = (timestamp: string, range: string) => {
     const date = new Date(timestamp);
-    if (range === 'hour' || range === 'day') {
+    if (range === 'hour') {
       return date.toLocaleTimeString('en-CA', { hour12: false, hour: 'numeric', minute: '2-digit' });
+    } else if (range === 'day') {
+      return date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
+    } else {
+      return date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
     }
-    return date.toLocaleDateString('en-CA', { weekday: 'short', day: 'numeric' });
   };
 
   const isAbnormalHR = () => {
@@ -213,14 +231,30 @@ export default function ResidentDetailPage() {
         <div style={{ backgroundColor: '#f5f0f0', borderBottom: '1px solid #d8d8db', padding: '20px', fontSize: '26px', fontWeight: 600 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div>{resident.name}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div>{resident.name}</div>
+                <button
+                  onClick={handleToggleActive}
+                  style={{
+                    padding: '4px 12px',
+                    fontSize: '12px',
+                    borderRadius: '12px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    backgroundColor: resident.is_active ? '#dcfce7' : '#f3f4f6',
+                    color: resident.is_active ? '#166534' : '#6b7280',
+                  }}
+                >
+                  {resident.is_active ? 'Active' : 'Inactive'}
+                </button>
+              </div>
               <div style={{ fontSize: '20px', fontWeight: 400, color: '#666' }}>Room: {resident.room_number}</div>
             </div>
           </div>
         </div>
 
         {/* Alert Banner */}
-        {resident.status !== 'stable' && (
+        {resident.is_active && resident.status !== 'stable' && !resident.alert_dismissed_at && (
           <div style={{ padding: '12px', backgroundColor: '#fee2e2', borderBottom: '1px solid #fca5a5' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 600, color: '#991b1b' }}>
@@ -242,12 +276,12 @@ export default function ResidentDetailPage() {
           {/* Left Sidebar - Vitals */}
           <div style={{ width: '33%', borderRight: '1px solid #d8d8db', padding: '16px', overflowY: 'auto' }}>
             {/* Abnormal Alerts */}
-            {isAbnormalHR() && (
+            {resident.is_active && canShowVitals(resident.latest_vitals?.activity_status || '') && isAbnormalHR() && (
               <div style={{ margin: '16px 8px 0 8px', padding: '12px', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '4px', color: '#dc2626', fontSize: '14px' }}>
                 Abnormal heart rate: {resident.latest_vitals?.heart_rate} BPM
               </div>
             )}
-            {isAbnormalRR() && (
+            {resident.is_active && canShowVitals(resident.latest_vitals?.activity_status || '') && isAbnormalRR() && (
               <div style={{ margin: '16px 8px 0 8px', padding: '12px', backgroundColor: '#fee2e2', border: '1px solid #fca5a5', borderRadius: '4px', color: '#dc2626', fontSize: '14px' }}>
                 Abnormal respiration: {resident.latest_vitals?.respiration} /min
               </div>
@@ -257,19 +291,23 @@ export default function ResidentDetailPage() {
             <div style={{ padding: '16px 8px', display: 'flex', gap: '8px' }}>
               <div style={{ flex: 1, padding: '12px', backgroundColor: '#fef2f2', borderRadius: '1rem', border: '1px solid #d8d8db', textAlign: 'center' }}>
                 <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: 500 }}>Heart Rate</div>
-                <div style={{ fontSize: '34px', fontWeight: 'bold', color: '#fc3737' }}>{resident.latest_vitals?.heart_rate || '--'}</div>
+                <div style={{ fontSize: '34px', fontWeight: 'bold', color: '#fc3737' }}>
+                  {!resident.is_active || !canShowVitals(resident.latest_vitals?.activity_status || '') ? 'N/A' : (resident.latest_vitals?.heart_rate || '--')}
+                </div>
                 <div style={{ fontSize: '12px', color: '#fca5a5' }}>BPM</div>
               </div>
               <div style={{ flex: 1, padding: '12px', backgroundColor: '#eff6ff', borderRadius: '1rem', border: '1px solid #d8d8db', textAlign: 'center' }}>
                 <div style={{ fontSize: '12px', color: '#2563eb', fontWeight: 500 }}>Respiration</div>
-                <div style={{ fontSize: '34px', fontWeight: 'bold', color: '#488bff' }}>{resident.latest_vitals?.respiration || '--'}</div>
+                <div style={{ fontSize: '34px', fontWeight: 'bold', color: '#488bff' }}>
+                  {!resident.is_active || !canShowVitals(resident.latest_vitals?.activity_status || '') ? 'N/A' : (resident.latest_vitals?.respiration || '--')}
+                </div>
                 <div style={{ fontSize: '12px', color: '#93c5fd' }}>/min</div>
               </div>
             </div>
 
             {/* Status */}
             <div style={{ padding: '0 20px', fontSize: '18px' }}>
-              <p>Bathroom Runs: {resident.today_bathroom_runs}</p>
+              <p>Bathroom Runs (10pm-8am): {resident.today_bathroom_runs}</p>
               <p>Activity: {getActivityLabel(resident.latest_vitals?.activity_status || '')}</p>
             </div>
 
@@ -329,7 +367,7 @@ export default function ResidentDetailPage() {
             {/* Chart */}
             <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '16px', border: '1px solid #d8d8db' }}>
               <div style={{ height: '200px' }}>
-                <Line data={chartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { y: { title: { display: true, text: 'BPM' } } } }} />
+                <Line data={chartData} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } }, scales: { y: { title: { display: true, text: metricUnits[selectedMetric] || '' } } } }} />
               </div>
             </div>
 

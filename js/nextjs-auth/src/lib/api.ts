@@ -67,4 +67,9 @@ export const dismissAlert = async (residentId: string) => {
   return response.data;
 };
 
+export const toggleResidentActive = async (residentId: string) => {
+  const response = await api.post(`/analytics/residents/${residentId}/toggle-active/`);
+  return response.data;
+};
+
 export default api;

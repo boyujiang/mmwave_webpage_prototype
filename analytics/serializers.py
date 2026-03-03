@@ -25,7 +25,7 @@ class ResidentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Resident
         fields = [
-            'id', 'name', 'room_number', 'date_of_birth',
+            'id', 'name', 'room_number', 'date_of_birth', 'is_active', 'alert_dismissed_at',
             'latest_vitals', 'today_bathroom_runs', 'latest_events', 'status'
         ]
 
@@ -58,10 +58,30 @@ class ResidentSerializer(serializers.ModelSerializer):
 
     def get_today_bathroom_runs(self, obj):
         from django.utils import timezone
-        today = timezone.now().date()
+        from datetime import timedelta
+        
+        now = timezone.now()
+        today = now.date()
+        
+        # Get events from 10pm today to 8am tomorrow
+        start_time = timezone.make_aware(
+            timezone.datetime(today.year, today.month, today.day, 22, 0, 0)
+        )
+        end_time = timezone.make_aware(
+            timezone.datetime(today.year, today.month, today.day, 23, 59, 59)
+        )
+        
+        # If it's before 8am today, also count from yesterday 10pm
+        if now.hour < 8:
+            yesterday = today - timedelta(days=1)
+            start_time = timezone.make_aware(
+                timezone.datetime(yesterday.year, yesterday.month, yesterday.day, 22, 0, 0)
+            )
+        
         return obj.events.filter(
             event_type='bathroom_run',
-            timestamp__date=today
+            timestamp__gte=start_time,
+            timestamp__lte=end_time
         ).count()
 
     def get_latest_events(self, obj):

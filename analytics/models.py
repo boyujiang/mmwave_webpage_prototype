@@ -50,6 +50,7 @@ class Resident(models.Model):
     date_of_birth = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
+    alert_dismissed_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} - Room {self.room_number}"
@@ -70,7 +71,7 @@ class ResidentVitals(models.Model):
     activity_status = models.CharField(max_length=20, choices=ACTIVITY_STATUS, default='lying_down')
     in_bed = models.BooleanField(default=False)
     in_room = models.BooleanField(default=True)
-    recorded_at = models.DateTimeField(auto_now_add=True)
+    recorded_at = models.DateTimeField()
 
     class Meta:
         ordering = ['-recorded_at']
