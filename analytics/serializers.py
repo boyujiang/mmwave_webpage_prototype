@@ -94,7 +94,7 @@ class ResidentListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Resident
-        fields = ['id', 'name', 'room_number', 'is_active', 'status']
+        fields = ['id', 'name', 'room_number', 'is_active', 'alert_dismissed_at', 'status']
 
     def get_status(self, obj):
         from django.utils import timezone

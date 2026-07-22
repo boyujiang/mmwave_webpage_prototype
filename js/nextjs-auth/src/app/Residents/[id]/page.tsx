@@ -110,11 +110,13 @@ export default function ResidentDetailPage() {
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [userData, residentsData] = await Promise.all([
+        const [userData, residentsData, notesData] = await Promise.all([
           getUserProfile(),
-          getResidents()
+          getResidents(),
+          getAlertNotes(residentId)
         ]);
         setUser(userData);
+        setAlertNotes(notesData);
         const found = residentsData.find((r: Resident) => r.id === parseInt(residentId));
         setResident(found || null);
         setLoading(false);

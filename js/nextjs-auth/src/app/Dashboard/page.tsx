@@ -91,7 +91,7 @@ export default function DashboardPage() {
 
   // Calculate stats from real data
   const totalResidents = residents.length;
-  const occupiedRooms = residents.filter(r => r.latest_vitals?.heart_rate).length;
+  const occupiedRooms = residents.filter(r => r.latest_vitals?.in_room).length;
   const residentsRequireAttention = alertResidents.length;
   const roomsWithActivity = residents.filter(r => r.latest_vitals?.activity_status === 'walking').length;
 

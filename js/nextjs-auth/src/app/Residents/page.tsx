@@ -144,33 +144,30 @@ export default function ResidentsPage() {
 
           {/* Resident Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredResidents.map((resident) => (
-              <div
-                key={resident.id}
-                className={`bg-white rounded-xl shadow-sm border-2 overflow-hidden hover:shadow-md transition-shadow ${getBorderClass(resident.status)}`}
-              >
-                {/* Header with status dot */}
-                <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3 relative">
-                  <div className="flex justify-between items-center">
-                    <span className="text-white font-semibold">Room {resident.room_number}</span>
-                    <div className="flex items-center gap-2">
-                      {/* Active/Inactive badge */}
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${resident.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
-                        {resident.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                      {/* Alert status dot */}
-                      {(() => {
-                        const effectiveStatus = resident.status !== 'stable' && resident.alert_dismissed_at ? 'stable' : resident.status;
-                        return (
-                          <span 
-                            className={`w-3 h-3 rounded-full ${effectiveStatus === 'stable' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
-                            title={effectiveStatus === 'stable' ? 'Stable' : 'Alert'}
-                          />
-                        );
-                      })()}
+            {filteredResidents.map((resident) => {
+              const effectiveStatus = (resident.status !== 'stable' && resident.alert_dismissed_at) ? 'stable' : resident.status;
+              return (
+                <div
+                  key={resident.id}
+                  className={`bg-white rounded-xl shadow-sm border-2 overflow-hidden hover:shadow-md transition-shadow ${getBorderClass(effectiveStatus)}`}
+                >
+                  {/* Header with status dot */}
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-4 py-3 relative">
+                    <div className="flex justify-between items-center">
+                      <span className="text-white font-semibold">Room {resident.room_number}</span>
+                      <div className="flex items-center gap-2">
+                        {/* Active/Inactive badge */}
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${resident.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>
+                          {resident.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                        {/* Alert status dot */}
+                        <span 
+                          className={`w-3 h-3 rounded-full ${effectiveStatus === 'stable' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}
+                          title={effectiveStatus === 'stable' ? 'Stable' : 'Alert'}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
                 {/* Content */}
                 <div className="p-4">
@@ -211,7 +208,7 @@ export default function ResidentsPage() {
                   </div>
 
                   {/* Alert Banner */}
-                  {resident.status !== 'stable' && (
+                  {resident.status !== 'stable' && !resident.alert_dismissed_at &&(
                     <div className="mb-4 p-2 bg-red-100 border border-red-400 rounded-lg text-center">
                       <span className="text-red-700 font-semibold text-sm">
                         {resident.status === 'fall_detected' ? '⚠️ Fall Detected!' : '⚠️ Room Departure!'}
@@ -236,7 +233,7 @@ export default function ResidentsPage() {
                   </button>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
 
           {/* Empty State */}
