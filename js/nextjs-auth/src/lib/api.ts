@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:8000/api';
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -22,7 +23,7 @@ export const login = async (email: string, password: string) => {
   return response.data;
 };
 
-export const register = async (data: any) => {
+export const register = async (data: Record<string, unknown>) => {
   const response = await api.post('/register/', data);
   return response.data;
 };
@@ -39,6 +40,11 @@ export const getDashboardConfig = async () => {
 
 export const getResidents = async () => {
   const response = await api.get('/analytics/residents/');
+  return response.data;
+};
+
+export const getResident = async (residentId: string) => {
+  const response = await api.get(`/analytics/residents/${residentId}/`);
   return response.data;
 };
 

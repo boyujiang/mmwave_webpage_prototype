@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import axios from 'axios';
 import { login } from '@/src/lib/api';
 
 export default function LoginPage() {
@@ -21,8 +22,11 @@ export default function LoginPage() {
       localStorage.setItem('access_token', data.access);
       localStorage.setItem('refresh_token', data.refresh);
       router.push('/Dashboard');
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed. Please try again.');
+    } catch (err: unknown) {
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.detail
+        : null;
+      setError(message || 'Login failed. Please try again.');
     } finally {
       setLoading(false);
     }

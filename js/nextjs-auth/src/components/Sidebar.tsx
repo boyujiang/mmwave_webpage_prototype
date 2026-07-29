@@ -1,9 +1,10 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
+import type { UserProfile } from '@/src/lib/types';
 
 interface SidebarProps {
-  user: any;
+  user: UserProfile | null;
 }
 
 export default function Sidebar({ user }: SidebarProps) {

@@ -57,24 +57,37 @@ class Resident(models.Model):
 
 
 # Resident Vitals (Frequently updated - every few seconds/minutes)
+#real time update obsoleted replaced by MQTT bridge
 class ResidentVitals(models.Model):
-    ACTIVITY_STATUS = [
+    """历史体征数据 - 用于图表展示"""
+    ACTIVITY_CHOICES = [
         ('standing', 'Standing'),
         ('sitting', 'Sitting'),
         ('walking', 'Walking'),
         ('lying_down', 'Lying Down'),
     ]
 
-    resident = models.ForeignKey(Resident, on_delete=models.CASCADE, related_name='vitals')
-    heart_rate = models.FloatField(null=True, blank=True)  # bpm
-    respiration = models.FloatField(null=True, blank=True)  # breaths per minute
-    activity_status = models.CharField(max_length=20, choices=ACTIVITY_STATUS, default='lying_down')
+    resident = models.ForeignKey(
+        Resident,
+        on_delete=models.CASCADE,
+        related_name='vitals',
+    )
+    heart_rate = models.FloatField(null=True, blank=True)
+    respiration = models.FloatField(null=True, blank=True)
+    activity_status = models.CharField(
+        max_length=20,
+        choices=ACTIVITY_CHOICES,
+        default='lying_down',
+    )
     in_bed = models.BooleanField(default=False)
     in_room = models.BooleanField(default=True)
-    recorded_at = models.DateTimeField()
-
+    recorded_at = models.DateTimeField(db_index=True)
+    
     class Meta:
         ordering = ['-recorded_at']
+        indexes = [
+            models.Index(fields=['resident', '-recorded_at']),
+        ]
 
 
 # Resident Events (Bathroom runs, etc - overnight/irregular updates)

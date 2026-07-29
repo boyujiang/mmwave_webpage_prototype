@@ -284,21 +284,25 @@ def check_and_restore_alert(resident_id):
 
 
 @shared_task
-def check_alert_after_dismiss(resident_id):
+def check_alert_after_dismiss(resident_id, dismissed_at_iso=None):
     """Check if alert conditions are still met 5 minutes after dismiss"""
-    from django.utils import timezone
-    from datetime import timedelta
+    from django.utils.dateparse import parse_datetime
     
     try:
         resident = Resident.objects.get(id=resident_id, is_active=True)
     except Resident.DoesNotExist:
         return f"Resident {resident_id} not found or inactive"
-    
-    # Check if 5 minutes have passed since dismiss
-    if resident.alert_dismissed_at:
-        time_since_dismiss = timezone.now() - resident.alert_dismissed_at
-        if time_since_dismiss < timedelta(minutes=5):
-            return f"Waiting for 5 minute countdown: {time_since_dismiss.seconds}s elapsed"
+
+    if resident.alert_dismissed_at is None:
+        return f"Resident {resident.name} has no dismissed alert"
+
+    if dismissed_at_iso:
+        expected_dismissed_at = parse_datetime(dismissed_at_iso)
+        if (
+            expected_dismissed_at is None
+            or resident.alert_dismissed_at != expected_dismissed_at
+        ):
+            return f"Ignored stale alert check for {resident.name}"
     
     # Check current alert conditions
     latest = resident.vitals.first()
@@ -306,13 +310,18 @@ def check_alert_after_dismiss(resident_id):
         is_fall = not latest.in_bed and latest.activity_status == 'lying_down'
         is_room_departure = not latest.in_bed and not latest.in_room
         
-        # Clear the dismiss timestamp if conditions still met (alert will reappear)
+        # Clear the mute and immediately publish the restored alert state.
         if is_fall or is_room_departure:
             resident.alert_dismissed_at = None
-            resident.save()
+            resident.save(update_fields=['alert_dismissed_at'])
+            from .realtime import publish_resident_vitals
+            publish_resident_vitals(resident, latest)
             return f"Alert conditions still met for {resident.name} - alert will be shown"
     
-    # Conditions not met, clear dismiss timestamp
+    # Clear the mute and publish the stable state to connected frontends.
     resident.alert_dismissed_at = None
-    resident.save()
+    resident.save(update_fields=['alert_dismissed_at'])
+    if latest:
+        from .realtime import publish_resident_vitals
+        publish_resident_vitals(resident, latest)
     return f"Alert conditions no longer met for {resident.name}"

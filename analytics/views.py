@@ -2,11 +2,12 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Avg, Count
 from django.utils import timezone
 from datetime import timedelta
-from .models import DashboardConfig, Resident, ResidentVitals, ResidentEvent, AlertNote
-from .serializers import ResidentSerializer, AlertNoteSerializer
+from .models import DashboardConfig, Resident
+from .serializers import ResidentSerializer
+from .tasks import check_alert_after_dismiss
+from .vitals_history import DEFAULT_METRIC, METRICS
 
 
 class ConfigView(APIView):
@@ -81,180 +82,18 @@ class ResidentVitalsHistoryView(APIView):
         except Resident.DoesNotExist:
             return Response({'error': 'Resident not found'}, status=404)
         
-        # Metrics that don't support hourly (only daily/weekly)
-        no_hourly_metrics = ['br', 'f', 'rd', 'w', 'ibt']
-        if range_param == 'hour' and metric in no_hourly_metrics:
+        metric_handler = METRICS.get(metric, DEFAULT_METRIC)
+        if range_param == 'hour' and not metric_handler.supports_hourly:
             return Response({
                 'data_avgs': [],
                 'baseline': 0,
                 'average': 0,
                 'message': 'This metric only supports daily and weekly view'
             })
-        
-        if metric == 'hr':
-            vitals = ResidentVitals.objects.filter(
-                resident=resident,
-                recorded_at__gte=start_time
-            ).order_by('recorded_at')
-            
-            # Aggregate by hour/day/week
-            if range_param == 'hour':
-                # Group by hour
-                from django.db.models.functions import TruncHour
-                grouped = vitals.annotate(period=TruncHour('recorded_at')).values('period').annotate(avg_val=Avg('heart_rate')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': round(g['avg_val'], 1)} for g in grouped if g['avg_val']]
-            elif range_param == 'day':
-                from django.db.models.functions import TruncDate
-                grouped = vitals.annotate(period=TruncDate('recorded_at')).values('period').annotate(avg_val=Avg('heart_rate')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': round(g['avg_val'], 1)} for g in grouped if g['avg_val']]
-            else:  # week
-                from django.db.models.functions import TruncWeek
-                grouped = vitals.annotate(period=TruncWeek('recorded_at')).values('period').annotate(avg_val=Avg('heart_rate')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': round(g['avg_val'], 1)} for g in grouped if g['avg_val']]
-            
-            baseline = 72
-            avg_value = sum(d['value'] for d in data) / max(len(data), 1) if data else baseline
-            
-            return Response({
-                'data_avgs': data,
-                'baseline': baseline,
-                'average': round(avg_value, 1)
-            })
-            
-        elif metric == 'rr':
-            vitals = ResidentVitals.objects.filter(
-                resident=resident,
-                recorded_at__gte=start_time
-            ).order_by('recorded_at')
-            
-            # Aggregate by hour/day/week
-            if range_param == 'hour':
-                from django.db.models.functions import TruncHour
-                grouped = vitals.annotate(period=TruncHour('recorded_at')).values('period').annotate(avg_val=Avg('respiration')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': round(g['avg_val'], 1)} for g in grouped if g['avg_val']]
-            elif range_param == 'day':
-                from django.db.models.functions import TruncDate
-                grouped = vitals.annotate(period=TruncDate('recorded_at')).values('period').annotate(avg_val=Avg('respiration')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': round(g['avg_val'], 1)} for g in grouped if g['avg_val']]
-            else:
-                from django.db.models.functions import TruncWeek
-                grouped = vitals.annotate(period=TruncWeek('recorded_at')).values('period').annotate(avg_val=Avg('respiration')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': round(g['avg_val'], 1)} for g in grouped if g['avg_val']]
-            
-            baseline = 16
-            avg_value = sum(d['value'] for d in data) / max(len(data), 1) if data else baseline
-            
-            return Response({
-                'data_avgs': data,
-                'baseline': baseline,
-                'average': round(avg_value, 1)
-            })
-            
-        elif metric == 'activity':
-            vitals = ResidentVitals.objects.filter(
-                resident=resident,
-                recorded_at__gte=start_time
-            ).order_by('recorded_at')
-            
-            activity_map = {'lying_down': 1, 'sitting': 2, 'standing': 3, 'walking': 4}
-            
-            if range_param == 'hour':
-                from django.db.models.functions import TruncHour
-                grouped = vitals.annotate(period=TruncHour('recorded_at')).values('period')
-                data = []
-                for g in grouped:
-                    # Get the most common activity in this hour
-                    hour_vitals = ResidentVitals.objects.filter(
-                        resident=resident,
-                        recorded_at__hour=g['period'].hour,
-                        recorded_at__date=g['period'].date()
-                    )
-                    activities = [activity_map.get(v.activity_status, 1) for v in hour_vitals]
-                    if activities:
-                        data.append({'timestamp': g['period'].isoformat(), 'value': round(sum(activities) / len(activities), 1)})
-            elif range_param == 'day':
-                from django.db.models.functions import TruncDate
-                grouped = vitals.annotate(period=TruncDate('recorded_at')).values('period')
-                data = []
-                for g in grouped:
-                    day_vitals = ResidentVitals.objects.filter(
-                        resident=resident,
-                        recorded_at__date=g['period']
-                    )
-                    activities = [activity_map.get(v.activity_status, 1) for v in day_vitals]
-                    if activities:
-                        data.append({'timestamp': g['period'].isoformat(), 'value': round(sum(activities) / len(activities), 1)})
-            else:
-                from django.db.models.functions import TruncWeek
-                grouped = vitals.annotate(period=TruncWeek('recorded_at')).values('period')
-                data = []
-                for g in grouped:
-                    week_vitals = ResidentVitals.objects.filter(
-                        resident=resident,
-                        recorded_at__gte=g['period'],
-                        recorded_at__lt=g['period'] + timedelta(days=7)
-                    )
-                    activities = [activity_map.get(v.activity_status, 1) for v in week_vitals]
-                    if activities:
-                        data.append({'timestamp': g['period'].isoformat(), 'value': round(sum(activities) / len(activities), 1)})
-            
-            return Response({
-                'data_avgs': data,
-                'baseline': 1,
-                'average': len(data) > 0 and sum(d['value'] for d in data) / len(data) or 1
-            })
-            
-        elif metric == 'br':
-            # Only daily and weekly
-            events = ResidentEvent.objects.filter(
-                resident=resident,
-                event_type='bathroom_run',
-                timestamp__gte=start_time
-            ).order_by('timestamp')
-            
-            if range_param == 'day':
-                from django.db.models.functions import TruncDate
-                grouped = events.annotate(period=TruncDate('timestamp')).values('period').annotate(count=Count('id')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': g['count']} for g in grouped]
-            else:  # week
-                from django.db.models.functions import TruncWeek
-                grouped = events.annotate(period=TruncWeek('timestamp')).values('period').annotate(count=Count('id')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': g['count']} for g in grouped]
-            
-            return Response({
-                'data_avgs': data,
-                'baseline': 0,
-                'average': sum(d['value'] for d in data) / max(len(data), 1)
-            })
-            
-        elif metric == 'f':
-            events = ResidentEvent.objects.filter(
-                resident=resident,
-                event_type='fall_detected',
-                timestamp__gte=start_time
-            ).order_by('timestamp')
-            
-            if range_param == 'day':
-                from django.db.models.functions import TruncDate
-                grouped = events.annotate(period=TruncDate('timestamp')).values('period').annotate(count=Count('id')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': g['count']} for g in grouped]
-            else:
-                from django.db.models.functions import TruncWeek
-                grouped = events.annotate(period=TruncWeek('timestamp')).values('period').annotate(count=Count('id')).order_by('period')
-                data = [{'timestamp': g['period'].isoformat(), 'value': g['count']} for g in grouped]
-            
-            return Response({
-                'data_avgs': data,
-                'baseline': 0,
-                'average': sum(d['value'] for d in data) / max(len(data), 1)
-            })
-            
-        else:
-            return Response({
-                'data_avgs': [],
-                'baseline': 0,
-                'average': 0
-            })
+
+        return Response(
+            metric_handler.get_history(resident, start_time, range_param)
+        )
 
 
 class AlertNoteView(APIView):
@@ -342,12 +181,16 @@ class DismissAlertView(APIView):
             return Response({'error': 'Resident not found'}, status=404)
         
         # Record the dismiss time
-        resident.alert_dismissed_at = timezone.now()
-        resident.save()
+        dismissed_at = timezone.now()
+        resident.alert_dismissed_at = dismissed_at
+        resident.save(update_fields=['alert_dismissed_at'])
         
-        # Schedule check after 5 minutes
-        from analytics.tasks import check_alert_after_dismiss
-        check_alert_after_dismiss.delay(resident_id)
+        # Pass the dismissal timestamp so an older queued task cannot clear a
+        # newer dismissal for the same resident.
+        check_alert_after_dismiss.apply_async(
+            args=[resident_id, dismissed_at.isoformat()],
+            countdown=300,
+        )
         
         return Response({'status': 'alert_dismissed', 'message': 'Alert dismissed. Will check again in 5 minutes.'})
 

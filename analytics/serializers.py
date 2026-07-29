@@ -2,10 +2,32 @@ from rest_framework import serializers
 from .models import Resident, ResidentVitals, ResidentEvent, AlertNote
 
 
+class VitalsPayloadSerializer(serializers.Serializer):
+    """Validate a payload received from esp/room/<room>/vitals."""
+
+    heart_rate = serializers.FloatField(min_value=0, max_value=300)
+    respiration = serializers.FloatField(min_value=0, max_value=100)
+    activity_status = serializers.ChoiceField(choices=[
+        'standing',
+        'sitting',
+        'walking',
+        'lying_down',
+    ])
+    in_bed = serializers.BooleanField()
+    in_room = serializers.BooleanField()
+    timestamp = serializers.DateTimeField()
+
+
 class ResidentVitalsSerializer(serializers.ModelSerializer):
+    """✅ 需要 Serializer - 返回历史数据给前端"""
+    
     class Meta:
         model = ResidentVitals
-        fields = ['heart_rate', 'respiration', 'activity_status', 'in_bed', 'in_room', 'recorded_at']
+        fields = [
+            'id', 'heart_rate', 'respiration', 'activity_status',
+            'in_bed', 'in_room', 'recorded_at'
+        ]
+
 
 
 class ResidentEventSerializer(serializers.ModelSerializer):

@@ -1,8 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { getUserProfile, getResidents, getResidentVitalsHistory, getAlertNotes, createAlertNote, dismissAlert, toggleResidentActive } from '@/src/lib/api';
+import { getUserProfile, getResident, getResidentVitalsHistory, getAlertNotes, createAlertNote, dismissAlert, toggleResidentActive } from '@/src/lib/api';
+import { useVitalsSocket } from '@/src/hooks/useVitalsSocket';
+import {
+  applyVitalsUpdate,
+  type VitalsUpdate,
+} from '@/src/lib/realtime';
+import type { UserProfile } from '@/src/lib/types';
 import Sidebar from '@/src/components/Sidebar';
 import {
   Chart as ChartJS,
@@ -13,6 +19,7 @@ import {
   Title,
   Tooltip,
   Legend,
+  type ChartData,
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -54,6 +61,11 @@ interface AlertNote {
   dismissed_at: string | null;
 }
 
+interface HistoryPoint {
+  timestamp: string;
+  value: number;
+}
+
 const metrics = [
   { id: 'hr', label: 'Heart Rate', unit: 'BPM' },
   { id: 'rr', label: 'Respiration', unit: '/min' },
@@ -91,49 +103,74 @@ const canShowVitals = (status: string) => {
   return status === 'sitting' || status === 'lying_down';
 };
 
+const formatTimestamp = (timestamp: string, range: string) => {
+  const date = new Date(timestamp);
+  if (range === 'hour') {
+    return date.toLocaleTimeString('en-CA', {
+      hour12: false,
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }
+
+  return date.toLocaleDateString('en-CA', {
+    month: 'short',
+    day: 'numeric',
+  });
+};
+
 export default function ResidentDetailPage() {
   const router = useRouter();
   const params = useParams();
   const residentId = params.id as string;
 
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [resident, setResident] = useState<Resident | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedMetric, setSelectedMetric] = useState('hr');
   const [selectedRange, setSelectedRange] = useState('day');
-  const [chartData, setChartData] = useState<any>({ labels: [], datasets: [] });
+  const [chartData, setChartData] = useState<ChartData<'line'>>({
+    labels: [],
+    datasets: [],
+  });
   const [alertNotes, setAlertNotes] = useState<AlertNote[]>([]);
   const [newNote, setNewNote] = useState('');
   const [selectedNote, setSelectedNote] = useState<AlertNote | null>(null);
-  const [isAlertDismissed, setIsAlertDismissed] = useState(false);
+  const [dismissedLocally, setDismissedLocally] = useState(false);
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
-        const [userData, residentsData, notesData] = await Promise.all([
+        const [userData, residentData, notesData] = await Promise.all([
           getUserProfile(),
-          getResidents(),
+          getResident(residentId),
           getAlertNotes(residentId)
         ]);
         setUser(userData);
         setAlertNotes(notesData);
-        const found = residentsData.find((r: Resident) => r.id === parseInt(residentId));
-        setResident(found || null);
+        setResident(residentData);
+        setDismissedLocally(false);
         setLoading(false);
-      } catch (error) {
+      } catch {
         router.push('/login');
       }
     };
     fetchInitialData();
   }, [router, residentId]);
 
+  const hasResident = resident !== null;
+
   useEffect(() => {
-    if (!resident) return;
+    if (!hasResident) return;
     const fetchHistory = async () => {
       try {
         const data = await getResidentVitalsHistory(residentId, selectedMetric, selectedRange);
-        const labels = data.data_avgs.map((d: any) => formatTimestamp(d.timestamp, selectedRange));
-        const values = data.data_avgs.map((d: any) => d.value);
+        const labels = data.data_avgs.map((point: HistoryPoint) =>
+          formatTimestamp(point.timestamp, selectedRange)
+        );
+        const values = data.data_avgs.map(
+          (point: HistoryPoint) => point.value
+        );
         const unit = metricUnits[selectedMetric] || '';
         setChartData({
           labels,
@@ -146,28 +183,16 @@ export default function ResidentDetailPage() {
       }
     };
     fetchHistory();
-  }, [resident, selectedMetric, selectedRange, residentId]);
+  }, [hasResident, selectedMetric, selectedRange, residentId]);
 
-  useEffect(() => {
-    if (!resident) return;
-    const fetchResidents = async () => {
-      try {
-        const data = await getResidents();
-        const found = data.find((r: Resident) => r.id === parseInt(residentId));
-        setResident(found || null);
-      } catch (error) {
-        console.error('Failed to fetch resident:', error);
-      }
-    };
-    fetchResidents();
-    const interval = setInterval(fetchResidents, 30000);
-    return () => clearInterval(interval);
-  }, [resident, residentId]);
+  const handleVitals = useCallback((update: VitalsUpdate) => {
+    setResident((current) =>
+      current ? applyVitalsUpdate(current, update) : current
+    );
+    setDismissedLocally(Boolean(update.alert_dismissed_at));
+  }, []);
 
-  useEffect(() => {
-    if (!resident) return;
-    setIsAlertDismissed(!!resident.alert_dismissed_at);
-  }, [resident]);
+  useVitalsSocket(handleVitals, Boolean(user), residentId);
 
   const handleSubmitNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,7 +210,7 @@ export default function ResidentDetailPage() {
   const handleDismissAlert = async () => {
     try {
       await dismissAlert(residentId);
-      setIsAlertDismissed(true);
+      setDismissedLocally(true);
     } catch (error) {
       console.error('Failed to dismiss alert:', error);
     }
@@ -200,17 +225,6 @@ export default function ResidentDetailPage() {
     }
   };
 
-  const formatTimestamp = (timestamp: string, range: string) => {
-    const date = new Date(timestamp);
-    if (range === 'hour') {
-      return date.toLocaleTimeString('en-CA', { hour12: false, hour: 'numeric', minute: '2-digit' });
-    } else if (range === 'day') {
-      return date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
-    } else {
-      return date.toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
-    }
-  };
-
   const isAbnormalHR = () => {
     const hr = resident?.latest_vitals?.heart_rate;
     return hr != null && (hr < acceptableHrRange[0] || hr > acceptableHrRange[1]);
@@ -220,6 +234,9 @@ export default function ResidentDetailPage() {
     const rr = resident?.latest_vitals?.respiration;
     return rr != null && (rr < acceptableRrRange[0] || rr > acceptableRrRange[1]);
   };
+
+  const isAlertDismissed =
+    dismissedLocally || Boolean(resident?.alert_dismissed_at);
 
   if (loading || !resident) {
     return <div className="min-h-screen flex items-center justify-center"><div className="text-xl">Loading...</div></div>;
@@ -256,19 +273,15 @@ export default function ResidentDetailPage() {
         </div>
 
         {/* Alert Banner */}
-        {resident.is_active && resident.status !== 'stable' && !resident.alert_dismissed_at && (
+        {resident.is_active && resident.status !== 'stable' && !isAlertDismissed && (
           <div style={{ padding: '12px', backgroundColor: '#fee2e2', borderBottom: '1px solid #fca5a5' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontWeight: 600, color: '#991b1b' }}>
                 ⚠️ {resident.status === 'fall_detected' ? 'Fall Detected!' : 'Room Departure!'}
               </span>
-              {!isAlertDismissed ? (
-                <button onClick={handleDismissAlert} style={{ padding: '6px 12px', border: '1px solid #dc2626', borderRadius: '4px', backgroundColor: 'white', color: '#dc2626', cursor: 'pointer' }}>
-                  Dismiss Alert
-                </button>
-              ) : (
-                <span style={{ fontSize: '14px', color: '#6b7280' }}>Alert Dismissed</span>
-              )}
+              <button onClick={handleDismissAlert} style={{ padding: '6px 12px', border: '1px solid #dc2626', borderRadius: '4px', backgroundColor: 'white', color: '#dc2626', cursor: 'pointer' }}>
+                Dismiss Alert
+              </button>
             </div>
           </div>
         )}

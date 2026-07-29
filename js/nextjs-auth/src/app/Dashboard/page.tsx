@@ -1,8 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { getUserProfile, getResidents } from '@/src/lib/api';
+import { useVitalsSocket } from '@/src/hooks/useVitalsSocket';
+import {
+  applyVitalsUpdate,
+  type VitalsUpdate,
+} from '@/src/lib/realtime';
+import type { UserProfile } from '@/src/lib/types';
 import Sidebar from '@/src/components/Sidebar';
 
 interface Resident {
@@ -31,7 +37,7 @@ interface Resident {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -45,7 +51,7 @@ export default function DashboardPage() {
         setUser(userData);
         setResidents(residentsData);
         setLoading(false);
-      } catch (error) {
+      } catch {
         router.push('/login');
       }
     };
@@ -53,22 +59,15 @@ export default function DashboardPage() {
     fetchInitialData();
   }, [router]);
 
-  useEffect(() => {
-    if (!user) return;
+  const handleVitals = useCallback((update: VitalsUpdate) => {
+    setResidents((current) =>
+      current.map((resident) =>
+        applyVitalsUpdate(resident, update)
+      )
+    );
+  }, []);
 
-    const fetchResidents = async () => {
-      try {
-        const data = await getResidents();
-        setResidents(data);
-      } catch (error) {
-        console.error('Failed to fetch residents:', error);
-      }
-    };
-
-    fetchResidents();
-    const interval = setInterval(fetchResidents, 30000);
-    return () => clearInterval(interval);
-  }, [user]);
+  useVitalsSocket(handleVitals, Boolean(user));
 
   // Sort residents: alerts first (by room_number), then stable (by room_number)
   const getEffectiveStatus = (resident: Resident) => {
@@ -87,8 +86,6 @@ export default function DashboardPage() {
   });
 
   const alertResidents = sortedResidents.filter(r => getEffectiveStatus(r) !== 'stable');
-  const stableResidents = sortedResidents.filter(r => getEffectiveStatus(r) === 'stable');
-
   // Calculate stats from real data
   const totalResidents = residents.length;
   const occupiedRooms = residents.filter(r => r.latest_vitals?.in_room).length;

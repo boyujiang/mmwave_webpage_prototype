@@ -1,8 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getUserProfile, getResidents } from '@/src/lib/api';
+import { useVitalsSocket } from '@/src/hooks/useVitalsSocket';
+import {
+  applyVitalsUpdate,
+  type VitalsUpdate,
+} from '@/src/lib/realtime';
+import type { UserProfile } from '@/src/lib/types';
 import Sidebar from '@/src/components/Sidebar';
 
 interface Resident {
@@ -39,12 +51,11 @@ const getActivityLabel = (status: string) => {
   return labels[status] || status;
 };
 
-export default function ResidentsPage() {
+function ResidentsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [residents, setResidents] = useState<Resident[]>([]);
-  const [filteredResidents, setFilteredResidents] = useState<Resident[]>([]);
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [loading, setLoading] = useState(true);
 
@@ -57,9 +68,8 @@ export default function ResidentsPage() {
         ]);
         setUser(userData);
         setResidents(residentsData);
-        setFilteredResidents(residentsData);
         setLoading(false);
-      } catch (error) {
+      } catch {
         router.push('/login');
       }
     };
@@ -67,45 +77,31 @@ export default function ResidentsPage() {
     fetchInitialData();
   }, [router]);
 
-  useEffect(() => {
-    if (!user) return;
+  const handleVitals = useCallback((update: VitalsUpdate) => {
+    setResidents((current) =>
+      current.map((resident) =>
+        applyVitalsUpdate(resident, update)
+      )
+    );
+  }, []);
 
-    const fetchResidents = async () => {
-      try {
-        const data = await getResidents();
-        setResidents(data);
-      } catch (error) {
-        console.error('Failed to fetch residents:', error);
-      }
-    };
+  useVitalsSocket(handleVitals, Boolean(user));
 
-    fetchResidents();
-    const interval = setInterval(fetchResidents, 30000);
-    return () => clearInterval(interval);
-  }, [user]);
-
-  useEffect(() => {
+  const filteredResidents = useMemo(() => {
     const query = searchQuery.toLowerCase();
     if (!query) {
-      setFilteredResidents(residents);
-    } else {
-      setFilteredResidents(
-        residents.filter(
-          (r) =>
-            r.name.toLowerCase().includes(query) ||
-            r.room_number.toLowerCase().includes(query)
-        )
-      );
+      return residents;
     }
+
+    return residents.filter(
+      (resident) =>
+        resident.name.toLowerCase().includes(query) ||
+        resident.room_number.toLowerCase().includes(query)
+    );
   }, [searchQuery, residents]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
-  };
-
-  const getStatusColor = (status: string) => {
-    if (status === 'stable') return 'green';
-    return 'red';
   };
 
   const getBorderClass = (status: string) => {
@@ -246,5 +242,19 @@ export default function ResidentsPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function ResidentsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-xl">Loading...</div>
+        </div>
+      }
+    >
+      <ResidentsContent />
+    </Suspense>
   );
 }
